@@ -1,0 +1,9 @@
+[package]
+name = "sarus-suite-podman-driver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+raster = { path = "../raster" }
+bstr = "1.12.0"
+anyhow = "1.0.100"
