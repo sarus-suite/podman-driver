@@ -235,7 +235,7 @@ pub fn image_exists(image: &str, podman_ctx: Option<&PodmanCtx>) -> bool {
     }
 
     cmd.args(["image", "exists", image]);
-    cmd.status().expect("Failed to execute command").success()
+    cmd.output().expect("Failed to execute command").status.success()
 }
 
 pub fn inspect(target: &str, format: Option<&str>, podman_ctx: Option<&PodmanCtx>) -> Output {
