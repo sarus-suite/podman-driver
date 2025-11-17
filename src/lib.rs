@@ -23,6 +23,11 @@ pub struct ContainerCtx {
     pub pidfile: Option<PathBuf>,
 }
 
+pub struct ExecutedCommand {
+    pub command: String,
+    pub output: Output,
+}
+
 fn base_command(podman_ctx: Option<&PodmanCtx>) -> Command {
     let Some(ctx) = podman_ctx else {
         return Command::new("podman");
@@ -34,6 +39,7 @@ fn base_command(podman_ctx: Option<&PodmanCtx>) -> Command {
         "--root",
         ctx.graphroot.as_deref().map(Path::as_os_str),
     );
+
     cli_opt(
         &mut cmd,
         "--runroot",
@@ -135,6 +141,7 @@ where
 
     cmd.arg(&edf.image);
     cmd.args(container_cmd);
+    print_command(&cmd);
 
     cmd
 }
@@ -206,6 +213,41 @@ pub fn rm(name: &str, podman_ctx: Option<&PodmanCtx>) {
     cmd.args(["rm", name])
         .output()
         .expect("Failed to execute command");
+}
+
+pub fn rm_output(name: &str, podman_ctx: Option<&PodmanCtx>) -> Output {
+    let mut cmd = base_command(podman_ctx);
+
+    if let Some(ctx) = podman_ctx {
+        cli_storage_opt(
+            &mut cmd,
+            "additionalimagestore",
+            ctx.ro_store.as_deref().map(Path::as_os_str),
+        );
+    }
+
+    cmd.args(["rm", name])
+        .output()
+        .expect("Failed to execute command")
+}
+
+pub fn stop_output(name: &str, podman_ctx: Option<&PodmanCtx>) -> ExecutedCommand {
+    let mut cmd = base_command(podman_ctx);
+
+    if let Some(ctx) = podman_ctx {
+        cli_storage_opt(
+            &mut cmd,
+            "additionalimagestore",
+            ctx.ro_store.as_deref().map(Path::as_os_str),
+        );
+    }
+
+    cmd.args(["stop", name]);
+
+    ExecutedCommand {
+        command: cmd2string(&cmd),
+        output: cmd.output().expect("Failed to execute command"),
+    }
 }
 
 pub fn images(podman_ctx: Option<&PodmanCtx>) {
@@ -575,4 +617,52 @@ mod tests {
         ];
         assert_eq!(args, args_expected);
     }
+}
+
+fn print_command(cmd: &Command) -> () {
+    let mut file = File::create("/tmp/command.out").expect("Failed to create or open the file");
+
+    let program = cmd
+        .get_program()
+        .to_str()
+        .expect("CANNOT CONVERT")
+        .to_string();
+    let args: Vec<&OsStr> = cmd.get_args().collect();
+    let mut strargs = String::from("");
+    for c in args.into_iter() {
+        strargs.push_str(c.to_str().expect("CANNOT CONVERT"));
+        strargs.push_str(" ");
+    }
+
+    let msg = format!("{program} {strargs}");
+    // Write to the file
+    file.write_all(msg.as_bytes())
+        .expect("Failed to write to the file");
+    ()
+}
+
+fn cmd2string(cmd: &Command) -> String {
+    let mut outstr = String::from("");
+
+    let strprogram = match cmd.get_program().to_str() {
+        Some(s) => s.to_string(),
+        None => String::from(""),
+    };
+    outstr += &(strprogram + " ");
+
+    for arg in cmd.get_args() {
+        let strarg = match arg.to_str() {
+            Some(s) => s.to_string(),
+            None => {
+                continue;
+            }
+        };
+        outstr += &(strarg + " ");
+    }
+
+    if outstr.ends_with(' ') {
+        outstr.pop();
+    }
+
+    return outstr;
 }
