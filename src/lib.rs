@@ -23,17 +23,6 @@ pub struct ContainerCtx {
     pub pidfile: Option<PathBuf>,
 }
 
-#[derive(Clone)]
-pub struct ExecutedCommand {
-    pub command: String,
-    pub output: Output,
-}
-
-pub struct ExecutedBool {
-    pub ec: ExecutedCommand,
-    pub result: bool,
-}
-
 fn base_command(podman_ctx: Option<&PodmanCtx>) -> Command {
     let Some(ctx) = podman_ctx else {
         return Command::new("podman");
@@ -147,7 +136,6 @@ where
 
     cmd.arg(&edf.image);
     cmd.args(container_cmd);
-    print_command(&cmd);
 
     cmd
 }
@@ -182,39 +170,11 @@ where
         .expect("Failed to execute command")
 }
 
-pub fn run_from_edf_ec<I, S>(
-    edf: &EDF,
-    p_ctx: Option<&PodmanCtx>,
-    c_ctx: &ContainerCtx,
-    container_cmd: I,
-) -> ExecutedCommand
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    let mut cmd = run_from_edf_command(edf, p_ctx, c_ctx, container_cmd);
-
-    ExecutedCommand {
-        command: cmd2string(&cmd),
-        output: cmd.output().expect("Failed to execute command"),
-    }
-}
-
 pub fn pull(image: &str, podman_ctx: Option<&PodmanCtx>) {
     base_command(podman_ctx)
         .args(["pull", image])
         .output()
         .expect("Failed to execute command");
-}
-
-pub fn pull_ec(image: &str, podman_ctx: Option<&PodmanCtx>) -> ExecutedCommand {
-    let mut cmd = base_command(podman_ctx);
-    cmd.args(["pull", image]);
-    
-    ExecutedCommand {
-        command: cmd2string(&cmd),
-        output: cmd.output().expect("Failed to execute command"),
-    }
 }
 
 pub fn rmi(image: &str, podman_ctx: Option<&PodmanCtx>) {
@@ -231,25 +191,6 @@ pub fn rmi(image: &str, podman_ctx: Option<&PodmanCtx>) {
     cmd.args(["rmi", image])
         .output()
         .expect("Failed to execute command");
-}
-
-pub fn rmi_ec(image: &str, podman_ctx: Option<&PodmanCtx>) -> ExecutedCommand {
-    let mut cmd = base_command(podman_ctx);
-
-    if let Some(ctx) = podman_ctx {
-        cli_storage_opt(
-            &mut cmd,
-            "additionalimagestore",
-            ctx.ro_store.as_deref().map(Path::as_os_str),
-        );
-    }
-
-    cmd.args(["rmi", image]);
-
-    ExecutedCommand {
-        command: cmd2string(&cmd),
-        output: cmd.output().expect("Failed to execute command"),
-    }
 }
 
 pub fn rm(name: &str, podman_ctx: Option<&PodmanCtx>) {
@@ -284,25 +225,6 @@ pub fn rm_output(name: &str, podman_ctx: Option<&PodmanCtx>) -> Output {
         .expect("Failed to execute command")
 }
 
-pub fn stop_ec(name: &str, podman_ctx: Option<&PodmanCtx>) -> ExecutedCommand {
-    let mut cmd = base_command(podman_ctx);
-
-    if let Some(ctx) = podman_ctx {
-        cli_storage_opt(
-            &mut cmd,
-            "additionalimagestore",
-            ctx.ro_store.as_deref().map(Path::as_os_str),
-        );
-    }
-
-    cmd.args(["stop", name]);
-
-    ExecutedCommand {
-        command: cmd2string(&cmd),
-        output: cmd.output().expect("Failed to execute command"),
-    }
-}
-
 pub fn images(podman_ctx: Option<&PodmanCtx>) {
     let mut cmd = base_command(podman_ctx);
 
@@ -331,32 +253,6 @@ pub fn image_exists(image: &str, podman_ctx: Option<&PodmanCtx>) -> bool {
 
     cmd.args(["image", "exists", image]);
     cmd.status().expect("Failed to execute command").success()
-}
-
-pub fn image_exists_eb(image: &str, podman_ctx: Option<&PodmanCtx>) -> ExecutedBool {
-    let mut cmd = base_command(podman_ctx);
-
-    if let Some(ctx) = podman_ctx {
-        cli_storage_opt(
-            &mut cmd,
-            "additionalimagestore",
-            ctx.ro_store.as_deref().map(Path::as_os_str),
-        );
-    }
-
-    cmd.args(["image", "exists", image]);
-
-    //cmd.status().expect("Failed to execute command").success()
-    let ec = ExecutedCommand {
-        command: cmd2string(&cmd),
-        output: cmd.output().expect("Failed to execute command"),
-    };
-    let result = ec.output.status.success();
-
-    ExecutedBool {
-        ec: ec,
-        result: result,
-    }
 }
 
 pub fn inspect(target: &str, format: Option<&str>, podman_ctx: Option<&PodmanCtx>) -> Output {
@@ -500,41 +396,12 @@ fn parallax_execute_command(
     Ok(())
 }
 
-fn parallax_execute_command_ec(
-    parallax_path: &PathBuf,
-    podman_ctx: &PodmanCtx,
-    image: &str,
-    action: &str,
-) -> anyhow::Result<ExecutedCommand> {
-    let mut cmd = parallax_command(parallax_path, podman_ctx, image, action);
-
-    let ec = ExecutedCommand {
-        command: cmd2string(&cmd),
-        output: cmd.output().expect(&format!("Failed to `parallax {action}`")),
-    };
-
-    if !ec.output.status.success() {
-        // include stderr to make debugging nicer
-        let stderr = String::from_utf8_lossy(&ec.output.stderr);
-        anyhow::bail!("parallax {action} failed: {}", stderr.trim());
-    }
-    Ok(ec)
-}
-
 pub fn parallax_migrate(
     parallax_path: &PathBuf,
     podman_ctx: &PodmanCtx,
     image: &str,
 ) -> anyhow::Result<()> {
     parallax_execute_command(parallax_path, podman_ctx, image, "migrate")
-}
-
-pub fn parallax_migrate_ec(
-    parallax_path: &PathBuf,
-    podman_ctx: &PodmanCtx,
-    image: &str,
-) -> anyhow::Result<ExecutedCommand> {
-    parallax_execute_command_ec(parallax_path, podman_ctx, image, "migrate")
 }
 
 pub fn parallax_rmi(
@@ -579,6 +446,151 @@ fn os_string_key_val(key: &OsStr, val: &OsStr) -> OsString {
     buf.push(OsStr::new("="));
     buf.push(val);
     buf
+}
+
+pub mod loggable {
+    use super::*;
+
+    fn cmd2string(cmd: &Command) -> String {
+        let mut outstr = match cmd.get_program().to_str() {
+            Some(s) => s.to_string(),
+            None => String::from(""),
+        };
+        outstr.push_str(" ");
+
+        for arg in cmd.get_args() {
+            outstr.push_str(" ");
+            let strarg = match arg.to_str() {
+                Some(s) => s,
+                None => "<CANNOT CONVERT>",
+            };
+            outstr.push_str(strarg);
+        }
+
+        return outstr;
+    }
+
+    #[derive(Clone)] //TODO: do we need this to be clonable?
+    pub struct ExecutedCommand {
+        pub command: String,
+        pub output: Output,
+    }
+
+    pub fn run_from_edf<I, S>(
+        edf: &EDF,
+        p_ctx: Option<&PodmanCtx>,
+        c_ctx: &ContainerCtx,
+        container_cmd: I,
+    ) -> ExecutedCommand
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let mut cmd = run_from_edf_command(edf, p_ctx, c_ctx, container_cmd);
+
+        ExecutedCommand {
+            command: cmd2string(&cmd),
+            output: cmd.output().expect("Failed to execute command"),
+        }
+    }
+
+    pub fn pull(image: &str, podman_ctx: Option<&PodmanCtx>) -> ExecutedCommand {
+        let mut cmd = base_command(podman_ctx);
+        cmd.args(["pull", image]);
+
+        ExecutedCommand {
+            command: cmd2string(&cmd),
+            output: cmd.output().expect("Failed to execute command"),
+        }
+    }
+
+    pub fn rmi(image: &str, podman_ctx: Option<&PodmanCtx>) -> ExecutedCommand {
+        let mut cmd = base_command(podman_ctx);
+
+        if let Some(ctx) = podman_ctx {
+            cli_storage_opt(
+                &mut cmd,
+                "additionalimagestore",
+                ctx.ro_store.as_deref().map(Path::as_os_str),
+            );
+        }
+
+        cmd.args(["rmi", image]);
+
+        ExecutedCommand {
+            command: cmd2string(&cmd),
+            output: cmd.output().expect("Failed to execute command"),
+        }
+    }
+
+    pub fn stop(name: &str, podman_ctx: Option<&PodmanCtx>) -> ExecutedCommand {
+        let mut cmd = base_command(podman_ctx);
+
+        if let Some(ctx) = podman_ctx {
+            cli_storage_opt(
+                &mut cmd,
+                "additionalimagestore",
+                ctx.ro_store.as_deref().map(Path::as_os_str),
+            );
+        }
+
+        cmd.args(["stop", name]);
+
+        ExecutedCommand {
+            command: cmd2string(&cmd),
+            output: cmd.output().expect("Failed to execute command"),
+        }
+    }
+
+    pub fn image_exists(image: &str, podman_ctx: Option<&PodmanCtx>) -> ExecutedCommand {
+        let mut cmd = base_command(podman_ctx);
+
+        if let Some(ctx) = podman_ctx {
+            cli_storage_opt(
+                &mut cmd,
+                "additionalimagestore",
+                ctx.ro_store.as_deref().map(Path::as_os_str),
+            );
+        }
+
+        cmd.args(["image", "exists", image]);
+
+        ExecutedCommand {
+            command: cmd2string(&cmd),
+            output: cmd.output().expect("Failed to execute command"),
+        }
+    }
+
+    fn parallax_execute_command(
+        parallax_path: &PathBuf,
+        podman_ctx: &PodmanCtx,
+        image: &str,
+        action: &str,
+    ) -> anyhow::Result<ExecutedCommand> {
+        let mut cmd = parallax_command(parallax_path, podman_ctx, image, action);
+
+        let ec = ExecutedCommand {
+            command: cmd2string(&cmd),
+            output: cmd
+                .output()
+                .expect(&format!("Failed to `parallax {action}`")),
+        };
+
+        if !ec.output.status.success() {
+            // include stderr to make debugging nicer
+            let stderr = String::from_utf8_lossy(&ec.output.stderr);
+            anyhow::bail!("parallax {action} failed: {}", stderr.trim());
+        }
+        Ok(ec)
+    }
+
+    pub fn parallax_migrate(
+        parallax_path: &PathBuf,
+        podman_ctx: &PodmanCtx,
+        image: &str,
+    ) -> anyhow::Result<ExecutedCommand> {
+        parallax_execute_command(parallax_path, podman_ctx, image, "migrate")
+    }
 }
 
 #[cfg(test)]
@@ -725,52 +737,4 @@ mod tests {
         ];
         assert_eq!(args, args_expected);
     }
-}
-
-fn print_command(cmd: &Command) -> () {
-    let mut file = File::create("/tmp/command.out").expect("Failed to create or open the file");
-
-    let program = cmd
-        .get_program()
-        .to_str()
-        .expect("CANNOT CONVERT")
-        .to_string();
-    let args: Vec<&OsStr> = cmd.get_args().collect();
-    let mut strargs = String::from("");
-    for c in args.into_iter() {
-        strargs.push_str(c.to_str().expect("CANNOT CONVERT"));
-        strargs.push_str(" ");
-    }
-
-    let msg = format!("{program} {strargs}");
-    // Write to the file
-    file.write_all(msg.as_bytes())
-        .expect("Failed to write to the file");
-    ()
-}
-
-fn cmd2string(cmd: &Command) -> String {
-    let mut outstr = String::from("");
-
-    let strprogram = match cmd.get_program().to_str() {
-        Some(s) => s.to_string(),
-        None => String::from(""),
-    };
-    outstr += &(strprogram + " ");
-
-    for arg in cmd.get_args() {
-        let strarg = match arg.to_str() {
-            Some(s) => s.to_string(),
-            None => {
-                continue;
-            }
-        };
-        outstr += &(strarg + " ");
-    }
-
-    if outstr.ends_with(' ') {
-        outstr.pop();
-    }
-
-    return outstr;
 }
