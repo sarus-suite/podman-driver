@@ -187,6 +187,61 @@ mod commands {
         cmd
     }
 
+    pub fn images(podman_ctx: Option<&PodmanCtx>) -> Command {
+        let mut cmd = commands::base(podman_ctx);
+
+        if let Some(ctx) = podman_ctx {
+            cli_storage_opt(
+                &mut cmd,
+                "additionalimagestore",
+                ctx.ro_store.as_deref().map(Path::as_os_str),
+            );
+        }
+
+        cmd.arg("images");
+        cmd
+    }
+
+    pub fn inspect(target: &str, format: Option<&str>, podman_ctx: Option<&PodmanCtx>) -> Command {
+        let mut cmd = commands::base(podman_ctx);
+
+        if let Some(ctx) = podman_ctx {
+            cli_storage_opt(
+                &mut cmd,
+                "additionalimagestore",
+                ctx.ro_store.as_deref().map(Path::as_os_str),
+            );
+        }
+
+        cmd.args(["--log-level=error", "inspect"]);
+
+        if let Some(fmt) = format {
+            cmd.args(["-f", fmt]);
+        }
+
+        cmd.arg(target);
+        cmd
+    }
+
+    pub fn info(format: Option<&str>, podman_ctx: Option<&PodmanCtx>) -> Command {
+        let mut cmd = commands::base(podman_ctx);
+        cmd.arg("info");
+
+        if let Some(fmt) = format {
+            cmd.args(["-f", fmt]);
+        }
+
+        cmd
+    }
+
+    pub fn version(module: Option<&str>) -> Command {
+        let mut cmd = commands::base(None);
+        cli_opt(&mut cmd, "--module", module.map(OsStr::new));
+
+        cmd.arg("version");
+        cmd
+    }
+
     pub fn parallax(
         parallax_path: &PathBuf,
         podman_ctx: &PodmanCtx,
@@ -292,18 +347,9 @@ pub fn stop(name: &str, podman_ctx: Option<&PodmanCtx>) {
 }
 
 pub fn images(podman_ctx: Option<&PodmanCtx>) {
-    let mut cmd = commands::base(podman_ctx);
-
-    if let Some(ctx) = podman_ctx {
-        cli_storage_opt(
-            &mut cmd,
-            "additionalimagestore",
-            ctx.ro_store.as_deref().map(Path::as_os_str),
-        );
-    }
-
-    cmd.arg("images");
-    cmd.status().expect("Failed to execute command");
+    commands::images(podman_ctx)
+        .status()
+        .expect("Failed to execute command");
 }
 
 pub fn image_exists(image: &str, podman_ctx: Option<&PodmanCtx>) -> bool {
@@ -314,42 +360,19 @@ pub fn image_exists(image: &str, podman_ctx: Option<&PodmanCtx>) -> bool {
 }
 
 pub fn inspect(target: &str, format: Option<&str>, podman_ctx: Option<&PodmanCtx>) -> Output {
-    let mut cmd = commands::base(podman_ctx);
-
-    if let Some(ctx) = podman_ctx {
-        cli_storage_opt(
-            &mut cmd,
-            "additionalimagestore",
-            ctx.ro_store.as_deref().map(Path::as_os_str),
-        );
-    }
-
-    cmd.args(["--log-level=error", "inspect"]);
-
-    if let Some(fmt) = format {
-        cmd.args(["-f", fmt]);
-    }
-
-    cmd.arg(target);
-    cmd.output().expect("Failed to execute command")
+    commands::inspect(target, format, podman_ctx)
+        .output()
+        .expect("Failed to execute command")
 }
 
 pub fn info(format: Option<&str>, podman_ctx: Option<&PodmanCtx>) -> Output {
-    let mut cmd = commands::base(podman_ctx);
-    cmd.arg("info");
-
-    if let Some(fmt) = format {
-        cmd.args(["-f", fmt]);
-    }
-
-    cmd.output().expect("Failed to execute command")
+    commands::info(format, podman_ctx)
+        .output()
+        .expect("Failed to execute command")
 }
 
 pub fn version(module: Option<&str>) -> Output {
-    let mut cmd = commands::base(None);
-    cli_opt(&mut cmd, "--module", module.map(OsStr::new));
-
-    cmd.arg("version")
+    commands::version(module)
         .output()
         .expect("Failed to execute command")
 }
