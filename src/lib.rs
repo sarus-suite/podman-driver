@@ -356,7 +356,7 @@ pub fn image_exists(image: &str, podman_ctx: Option<&PodmanCtx>) -> bool {
     commands::image_exists(image, podman_ctx)
         .output()
         .expect("Failed to execute command")
-        .success()
+        .status.success()
 }
 
 pub fn inspect(target: &str, format: Option<&str>, podman_ctx: Option<&PodmanCtx>) -> Output {
