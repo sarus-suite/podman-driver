@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-raster = { git = "https://github.com/sarus-suite/raster" }
+raster = { git = "https://github.com/sarus-suite/raster", branch = "DynConf" }
 bstr = "1.12.0"
 anyhow = "1.0.100"
