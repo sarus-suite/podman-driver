@@ -589,29 +589,23 @@ pub mod loggable {
         podman_ctx: &PodmanCtx,
         image: &str,
         action: &str,
-    ) -> anyhow::Result<ExecutedCommand> {
+    ) -> ExecutedCommand {
         let mut cmd = commands::parallax(parallax_path, podman_ctx, image, action);
 
-        let ec = ExecutedCommand {
+        ExecutedCommand {
             command: cmd2string(&cmd),
             output: cmd
                 .output()
                 .expect(&format!("Failed to `parallax {action}`")),
-        };
-
-        if !ec.output.status.success() {
-            // include stderr to make debugging nicer
-            let stderr = String::from_utf8_lossy(&ec.output.stderr);
-            anyhow::bail!("parallax {action} failed: {}", stderr.trim());
         }
-        Ok(ec)
+
     }
 
     pub fn parallax_migrate(
         parallax_path: &PathBuf,
         podman_ctx: &PodmanCtx,
         image: &str,
-    ) -> anyhow::Result<ExecutedCommand> {
+    ) -> ExecutedCommand {
         parallax_execute_command(parallax_path, podman_ctx, image, "migrate")
     }
 }
