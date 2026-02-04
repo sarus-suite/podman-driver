@@ -1,5 +1,6 @@
 use anyhow::{self, Ok};
 use raster::EDF;
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::prelude::*;
@@ -14,7 +15,7 @@ pub struct PodmanCtx {
     pub parallax_mount_program: Option<PathBuf>,
     pub ro_store: Option<PathBuf>,
 
-    pub podman_env: Option<Vec<(OsString, OsString)>>,
+    pub podman_env: Option<HashMap<OsString, OsString>>,
 }
 
 //// tiny helper to simplify set podman execution env as:
@@ -27,8 +28,8 @@ pub struct PodmanCtx {
 impl PodmanCtx {
     pub fn with_env(mut self, k: impl Into<OsString>, v: impl Into<OsString>) -> Self {
         self.podman_env
-            .get_or_insert_with(Vec::new)
-            .push((k.into(), v.into()));
+            .get_or_insert_with(HashMap::new)
+            .insert(k.into(), v.into());
         self
     }
 }
@@ -53,9 +54,7 @@ mod commands {
 
         // We only set the env vars if we get them
         if let Some(envs) = &ctx.podman_env {
-            for (k, v) in envs {
-                cmd.env(k, v);
-            }
+            cmd.envs(envs.iter());
         }
 
         cli_opt(
