@@ -1,5 +1,6 @@
 use anyhow::{self, Ok};
 use raster::EDF;
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::prelude::*;
@@ -13,6 +14,24 @@ pub struct PodmanCtx {
     pub runroot: Option<PathBuf>,
     pub parallax_mount_program: Option<PathBuf>,
     pub ro_store: Option<PathBuf>,
+
+    pub podman_env: Option<HashMap<OsString, OsString>>,
+}
+
+//// tiny helper to simplify set podman execution env as:
+// let p_ctx = PodmanCtx {
+//    // ...normal fields...
+//    podman_env: None,
+//}
+//.with_env("PARALLAX_MP_SQUASHFUSE_CMD", "/usr/bin/squashfuse_ll")
+//.with_env("PARALLAX_MP_SQUASHFUSE_FLAG", "-o uid=432,gid=123");
+impl PodmanCtx {
+    pub fn with_env(mut self, k: impl Into<OsString>, v: impl Into<OsString>) -> Self {
+        self.podman_env
+            .get_or_insert_with(HashMap::new)
+            .insert(k.into(), v.into());
+        self
+    }
 }
 
 pub struct ContainerCtx {
@@ -32,6 +51,12 @@ mod commands {
         };
 
         let mut cmd = Command::new(ctx.podman_path.as_path());
+
+        // We only set the env vars if we get them
+        if let Some(envs) = &ctx.podman_env {
+            cmd.envs(envs.iter());
+        }
+
         cli_opt(
             &mut cmd,
             "--root",
@@ -626,6 +651,7 @@ mod tests {
                 "/usr/local/sarus-test/parallax_mount_program",
             )),
             ro_store: Some(PathBuf::from("/scratch/user/parallax/store")),
+            podman_env: None,
         };
 
         let c_ctx = ContainerCtx {
@@ -731,6 +757,7 @@ mod tests {
                 "/usr/local/sarus-test/parallax_mount_program",
             )),
             ro_store: Some(PathBuf::from("/scratch/user/parallax/store")),
+            podman_env: None,
         };
 
         let parallax_path = PathBuf::from("/usr/local/sarus-test/parallax");
