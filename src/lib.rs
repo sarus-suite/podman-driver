@@ -40,6 +40,7 @@ pub struct ContainerCtx {
     pub detach: bool,
     pub set_env: bool,
     pub pidfile: Option<PathBuf>,
+    pub user: Option<String>,
 }
 
 mod commands {
@@ -111,6 +112,7 @@ mod commands {
         cli_flag(&mut cmd, !edf.writable, "--read-only");
 
         cli_opt(&mut cmd, "--name", Some(OsStr::new(&c_ctx.name)));
+        cli_opt(&mut cmd, "--user", c_ctx.user.as_deref().map(OsStr::new));
         cli_opt(
             &mut cmd,
             "--pidfile",
@@ -281,6 +283,17 @@ mod commands {
         cmd
     }
 
+    pub fn system_reset(podman_ctx: Option<&PodmanCtx>) -> Command {
+        let mut cmd = commands::base(podman_ctx);
+
+        if let Some(ctx) = podman_ctx {
+            cli_opt(&mut cmd, "--module", ctx.module.as_deref().map(OsStr::new));
+        }
+
+        cmd.args(["system", "reset", "--force"]);
+        cmd
+    }
+
     pub fn kube(podman_ctx: Option<&PodmanCtx>) -> Command {
         let mut cmd = commands::base(podman_ctx);
 
@@ -330,26 +343,24 @@ mod commands {
         podman_ctx: &PodmanCtx,
         image: &str,
         action: &str,
-    ) -> Command {
+    ) -> anyhow::Result<Command> {
         let mut cmd = Command::new(parallax_path);
 
-        cmd.arg("--podmanRoot")
-            .arg(
-                podman_ctx
-                    .graphroot
-                    .as_ref()
-                    .expect("Missing graphroot in parallax_migrate()"),
-            )
-            .arg("--roStoragePath")
-            .arg(
-                podman_ctx
-                    .ro_store
-                    .as_ref()
-                    .expect("Missing read-only store path in parallax_migrate()"),
-            );
+        let ro_store = podman_ctx.ro_store.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Missing read-only store path for parallax command {action}")
+        })?;
+
+        cmd.arg("--roStoragePath").arg(ro_store);
+
+        // Only needed for migrate action
+        cli_opt(
+            &mut cmd,
+            "--podmanRoot",
+            podman_ctx.graphroot.as_deref().map(Path::as_os_str),
+        );
 
         cmd.arg(format!("--{action}")).arg("--image").arg(image);
-        cmd
+        anyhow::Ok(cmd)
     }
 }
 
@@ -465,12 +476,17 @@ pub fn images(podman_ctx: Option<&PodmanCtx>) {
         .expect("Failed to execute command");
 }
 
-pub fn image_exists(image: &str, podman_ctx: Option<&PodmanCtx>) -> bool {
-    commands::image_exists(image, podman_ctx)
-        .output()
-        .expect("Failed to execute command")
-        .status
-        .success()
+pub fn image_exists(image: &str, podman_ctx: Option<&PodmanCtx>) -> anyhow::Result<bool> {
+    let output = match commands::image_exists(image, podman_ctx).output() {
+        std::result::Result::Ok(output) => output,
+        Err(err) => {
+            return Err(anyhow::anyhow!(
+                "Failed to execute `podman image exists` for {image}: {err}"
+            ));
+        }
+    };
+
+    Ok(output.status.success())
 }
 
 pub fn inspect(target: &str, format: Option<&str>, podman_ctx: Option<&PodmanCtx>) -> Output {
@@ -481,6 +497,12 @@ pub fn inspect(target: &str, format: Option<&str>, podman_ctx: Option<&PodmanCtx
 
 pub fn info(format: Option<&str>, podman_ctx: Option<&PodmanCtx>) -> Output {
     commands::info(format, podman_ctx)
+        .output()
+        .expect("Failed to execute command")
+}
+
+pub fn system_reset(podman_ctx: Option<&PodmanCtx>) -> Output {
+    commands::system_reset(podman_ctx)
         .output()
         .expect("Failed to execute command")
 }
@@ -558,15 +580,30 @@ pub fn get_container_pid_from_default_file(
     Ok(pid)
 }
 
+pub fn parallax_exist(
+    parallax_path: &PathBuf,
+    podman_ctx: &PodmanCtx,
+    image: &str,
+) -> anyhow::Result<bool> {
+    let output = match commands::parallax(parallax_path, podman_ctx, image, "exist")?.output() {
+        std::result::Result::Ok(output) => output,
+        Err(err) => {
+            return Err(anyhow::anyhow!(
+                "Failed to execute `parallax exist` for {image}: {err}"
+            ));
+        }
+    };
+
+    Ok(output.status.success())
+}
+
 fn parallax_execute_command(
     parallax_path: &PathBuf,
     podman_ctx: &PodmanCtx,
     image: &str,
     action: &str,
 ) -> anyhow::Result<()> {
-    let output = commands::parallax(parallax_path, podman_ctx, image, action)
-        .output()
-        .expect(&format!("Failed to execute `parallax {action}`"));
+    let output = commands::parallax(parallax_path, podman_ctx, image, action)?.output()?;
 
     if !output.status.success() {
         // include stderr to make debugging nicer
@@ -582,9 +619,7 @@ fn parallax_execute_command_streaming(
     image: &str,
     action: &str,
 ) -> anyhow::Result<()> {
-    let status = commands::parallax(parallax_path, podman_ctx, image, action)
-        .status()
-        .expect(&format!("Failed to execute `parallax {action}`"));
+    let status = commands::parallax(parallax_path, podman_ctx, image, action)?.status()?;
 
     if !status.success() {
         anyhow::bail!("parallax {action} failed");
@@ -597,6 +632,10 @@ pub fn parallax_migrate(
     podman_ctx: &PodmanCtx,
     image: &str,
 ) -> anyhow::Result<()> {
+    podman_ctx
+        .graphroot
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Missing graphroot for parallax command migrate"))?;
     parallax_execute_command(parallax_path, podman_ctx, image, "migrate")
 }
 
@@ -613,6 +652,10 @@ pub fn parallax_migrate_streaming(
     podman_ctx: &PodmanCtx,
     image: &str,
 ) -> anyhow::Result<()> {
+    podman_ctx
+        .graphroot
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Missing graphroot for parallax command migrate"))?;
     parallax_execute_command_streaming(parallax_path, podman_ctx, image, "migrate")
 }
 
@@ -742,19 +785,28 @@ pub mod loggable {
         }
     }
 
+    pub fn system_reset(podman_ctx: Option<&PodmanCtx>) -> ExecutedCommand {
+        let mut cmd = commands::system_reset(podman_ctx);
+
+        ExecutedCommand {
+            command: cmd2string(&cmd),
+            output: cmd.output().expect("Failed to execute command"),
+        }
+    }
+
     fn parallax_execute_command(
         parallax_path: &PathBuf,
         podman_ctx: &PodmanCtx,
         image: &str,
         action: &str,
     ) -> ExecutedCommand {
-        let mut cmd = commands::parallax(parallax_path, podman_ctx, image, action);
+        let mut cmd = commands::parallax(parallax_path, podman_ctx, image, action).unwrap();
 
         ExecutedCommand {
             command: cmd2string(&cmd),
             output: cmd
                 .output()
-                .expect(&format!("Failed to `parallax {action}`")),
+                .unwrap_or_else(|err| panic!("Failed to `parallax {action}`: {err}")),
         }
     }
 
@@ -792,6 +844,7 @@ mod tests {
             detach: true,
             set_env: true,
             pidfile: Some(PathBuf::from("/tmp/test/pidfile")),
+            user: Some(String::from("1234:4321")),
         };
 
         let edf_path = std::env::current_dir()
@@ -804,7 +857,7 @@ mod tests {
         assert_eq!(cmd.get_program(), OsStr::new("/usr/bin/podman"));
 
         let args: Vec<&OsStr> = cmd.get_args().collect();
-        assert_eq!(args.len(), 40);
+        assert_eq!(args.len(), 42);
 
         let args_head: Vec<&OsStr> = vec![
             OsStr::new("--root"),
@@ -824,11 +877,13 @@ mod tests {
             OsStr::new("--read-only"),
             OsStr::new("--name"),
             OsStr::new("edf_test"),
+            OsStr::new("--user"),
+            OsStr::new("1234:4321"),
             OsStr::new("--pidfile"),
             OsStr::new("/tmp/test/pidfile"),
             OsStr::new("--entrypoint="),
         ];
-        assert_eq!(args[..20], args_head);
+        assert_eq!(args[..22], args_head);
 
         // Use any() and iterator windows to be flexible w.r.t HashMap ordering and
         // at the same time check that option/value pairs are respected
